@@ -1,0 +1,425 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f5f7fa">
+  <title>航迹图 · KML 查看器</title>
+  <link rel="preconnect" href="https://unpkg.com">
+  <link rel="preconnect" href="https://tile.openstreetmap.org">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+  <style>
+    :root { color-scheme: light; --ink:#192b3a; --muted:#718090; --line:#e6ebef; --blue:#1677ff; --panel:#fff; }
+    * { box-sizing:border-box; }
+    html, body { width:100%; height:100%; margin:0; }
+    body { font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif; color:var(--ink); background:#f5f7fa; }
+    button, input { font:inherit; }
+    .app { height:100%; display:grid; grid-template-rows:64px minmax(0,1fr); }
+    .topbar { display:flex; align-items:center; gap:18px; padding:0 22px; background:var(--panel); border-bottom:1px solid var(--line); z-index:500; }
+    .brand { display:flex; align-items:center; gap:10px; min-width:210px; font-weight:700; letter-spacing:-.02em; }
+    .brand-mark { display:grid; place-items:center; width:32px; height:32px; color:white; background:#1677ff; border-radius:10px; box-shadow:0 4px 10px #1677ff33; }
+    .brand small { display:block; margin-top:2px; color:var(--muted); font-weight:500; font-size:11px; letter-spacing:.02em; }
+    .file-name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--muted); font-size:13px; flex:1; }
+    .btn { border:1px solid #dce3e9; background:white; color:var(--ink); border-radius:9px; padding:9px 13px; cursor:pointer; font-size:13px; font-weight:600; transition:.15s; }
+    .btn:hover { border-color:#a8caff; color:var(--blue); background:#f6faff; }
+    .btn.primary { color:white; border-color:var(--blue); background:var(--blue); box-shadow:0 3px 8px #1677ff30; }
+    .btn.primary:hover { background:#0868ed; }
+    .layout { min-height:0; display:grid; grid-template-columns:330px minmax(0,1fr); }
+    .sidebar { position:relative; z-index:400; overflow:auto; padding:20px 18px; border-right:1px solid var(--line); background:var(--panel); }
+    .eyebrow { color:#8392a0; font-size:10px; font-weight:700; letter-spacing:.12em; text-transform:uppercase; }
+    .route-title { margin:8px 0 5px; font-size:22px; line-height:1.25; overflow-wrap:anywhere; }
+    .subtle { color:var(--muted); font-size:12px; line-height:1.55; }
+    .dropzone { margin:18px 0 20px; padding:15px; border:1px dashed #cbd6df; border-radius:12px; background:#fafcff; transition:.15s; }
+    .dropzone.dragging { border-color:var(--blue); background:#f0f7ff; }
+    .drop-title { margin-bottom:4px; font-size:13px; font-weight:650; }
+    .drop-row { display:flex; align-items:center; justify-content:space-between; gap:9px; }
+    .drop-row .subtle { flex:1; }
+    .section { padding:17px 0; border-top:1px solid var(--line); }
+    .section-heading { display:flex; align-items:center; justify-content:space-between; margin-bottom:13px; font-size:12px; font-weight:700; }
+    .tag { padding:4px 8px; color:#216bc7; background:#eef6ff; border-radius:99px; font-size:11px; font-weight:650; }
+    .stats { display:grid; grid-template-columns:1fr 1fr; gap:9px; }
+    .stat { min-height:70px; padding:11px; border:1px solid #edf0f3; border-radius:10px; background:#fcfdfe; }
+    .stat-label { color:var(--muted); font-size:11px; }
+    .stat-value { margin-top:7px; font-size:15px; line-height:1.2; font-weight:700; font-variant-numeric:tabular-nums; }
+    .stat-value.small { font-size:12px; }
+    .place { display:flex; gap:12px; align-items:flex-start; }
+    .place-dot { flex:0 0 auto; width:10px; height:10px; margin-top:4px; border:2px solid white; border-radius:50%; box-shadow:0 0 0 2px #35a879; background:#35a879; }
+    .place-dot.end { background:#f05a66; box-shadow:0 0 0 2px #f05a66; }
+    .place-body { min-width:0; flex:1; }
+    .place-label { font-size:12px; font-weight:700; }
+    .place-time { margin-top:3px; color:var(--muted); font-size:11px; }
+    .place-coord { margin-top:4px; color:#536575; font-size:11px; font-variant-numeric:tabular-nums; }
+    .timeline { display:grid; gap:11px; }
+    .timeline-row { display:flex; align-items:center; gap:9px; color:#546373; font-size:12px; }
+    .timeline-icon { color:#8593a0; width:16px; text-align:center; }
+    .map-wrap { min-width:0; min-height:0; position:relative; background:#e8edf1; }
+    #map { position:absolute; inset:0; }
+    .map-tools { position:absolute; z-index:500; right:16px; top:16px; display:flex; gap:8px; }
+    .map-tools .btn { box-shadow:0 2px 8px #18344a18; }
+    .map-legend { position:absolute; z-index:400; left:14px; bottom:20px; display:flex; align-items:center; gap:14px; padding:10px 12px; border:1px solid #e8edf1; border-radius:10px; background:#ffffffed; box-shadow:0 3px 12px #18344a12; color:#516171; font-size:11px; }
+    .legend-item { display:flex; align-items:center; gap:6px; }
+    .legend-line { width:18px; height:3px; border-radius:3px; background:#1677ff; }
+    .legend-point { width:8px; height:8px; border-radius:50%; background:#35a879; }
+    .legend-point.end { background:#f05a66; }
+    .empty { position:absolute; inset:0; z-index:300; display:flex; align-items:center; justify-content:center; padding:22px; pointer-events:none; }
+    .empty-card { max-width:370px; padding:24px 26px; text-align:center; border:1px solid #e3eaf0; border-radius:16px; background:#ffffffed; box-shadow:0 12px 40px #182d4017; }
+    .empty-icon { margin-bottom:12px; color:#1677ff; font-size:30px; }
+    .empty-card h2 { margin:0 0 8px; font-size:17px; }
+    .empty-card p { margin:0; color:var(--muted); font-size:13px; line-height:1.65; }
+    .leaflet-popup-content-wrapper { border-radius:10px; }
+    .popup-title { margin-bottom:5px; font-weight:700; }
+    .popup-sub { color:#667686; font-size:12px; line-height:1.6; }
+    .error { margin-top:8px; color:#bd3541; font-size:12px; line-height:1.5; }
+    .hidden { display:none !important; }
+    @media (max-width:760px) {
+      .app { grid-template-rows:58px minmax(0,1fr); }
+      .topbar { gap:10px; padding:0 12px; }
+      .brand { min-width:0; font-size:14px; }
+      .brand small { display:none; }
+      .brand-mark { width:30px; height:30px; }
+      .file-name { font-size:11px; }
+      .topbar .btn { padding:8px 10px; font-size:12px; }
+      .layout { grid-template-columns:minmax(0,1fr); grid-template-rows:minmax(180px,38%) minmax(0,1fr); }
+      .sidebar { order:2; padding:15px; border-top:1px solid var(--line); border-right:0; }
+      .map-wrap { order:1; }
+      .dropzone { margin:12px 0; padding:11px; }
+      .section { padding:13px 0; }
+      .map-legend { bottom:10px; left:8px; gap:9px; padding:8px; }
+      .map-tools { right:8px; top:8px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <header class="topbar">
+      <div class="brand"><span class="brand-mark" aria-hidden="true">⌁</span><span>航迹图<small>KML 轨迹查看器</small></span></div>
+      <div class="file-name" id="fileName">尚未打开文件</div>
+      <button class="btn" id="fitButton" type="button" disabled>适配航迹</button>
+      <button class="btn primary" id="openButton" type="button">打开 KML</button>
+      <input class="hidden" id="fileInput" type="file" accept=".kml,application/vnd.google-earth.kml+xml,application/xml,text/xml">
+    </header>
+    <div class="layout">
+      <aside class="sidebar">
+        <div class="eyebrow">FLIGHT OVERVIEW</div>
+        <h1 class="route-title" id="routeTitle">等待载入航迹</h1>
+        <div class="subtle" id="routeSubtitle">选择或拖入 KML 文件，在地图上查看路线。</div>
+
+        <div class="dropzone" id="dropzone">
+          <div class="drop-title">导入 KML 航迹</div>
+          <div class="drop-row"><span class="subtle">支持 .kml 文件，也可以拖到这里</span><button class="btn" id="browseButton" type="button">浏览</button></div>
+          <div class="error hidden" id="errorMessage" role="alert"></div>
+        </div>
+
+        <section class="section">
+          <div class="section-heading"><span>航程摘要</span><span class="tag" id="pointCount">0 个点</span></div>
+          <div class="stats">
+            <div class="stat"><div class="stat-label">有记录路段长度</div><div class="stat-value" id="distance">—</div></div>
+            <div class="stat"><div class="stat-label">飞行时长</div><div class="stat-value" id="duration">—</div></div>
+            <div class="stat"><div class="stat-label">起飞时间</div><div class="stat-value small" id="startTime">—</div></div>
+            <div class="stat"><div class="stat-label">抵达时间</div><div class="stat-value small" id="endTime">—</div></div>
+          </div>
+        </section>
+
+        <section class="section">
+          <div class="section-heading">数据连续性 <span class="tag">点距 &gt; 2 km</span></div>
+          <div class="stats">
+            <div class="stat"><div class="stat-label">长间隔区段</div><div class="stat-value" id="gapCount">—</div></div>
+            <div class="stat"><div class="stat-label">最大未连接点距</div><div class="stat-value" id="largestGap">—</div></div>
+          </div>
+          <div class="subtle" style="margin-top:10px">圆点是文件中的实际记录位置。虚线仅连接相邻记录，不代表中间有采样；相邻点直线距离超过 2 公里时不连线，并以橙色圆环标出跨过间隔后的记录点。</div>
+        </section>
+
+        <section class="section">
+          <div class="section-heading">航迹端点</div>
+          <div class="timeline">
+            <div class="place"><span class="place-dot"></span><div class="place-body"><div class="place-label">起点</div><div class="place-time" id="startDetail">—</div><div class="place-coord" id="startCoord">—</div></div></div>
+            <div class="place"><span class="place-dot end"></span><div class="place-body"><div class="place-label">终点</div><div class="place-time" id="endDetail">—</div><div class="place-coord" id="endCoord">—</div></div></div>
+          </div>
+        </section>
+        <section class="section">
+          <div class="section-heading">地图图例</div>
+          <div class="timeline">
+            <div class="timeline-row"><span class="legend-point" style="background:#1677ff"></span>实际数据点</div>
+            <div class="timeline-row"><span class="legend-line" style="background:repeating-linear-gradient(90deg,#7f9fbd 0 3px,transparent 3px 6px)"></span>点间连接（无采样）</div>
+            <div class="timeline-row"><span class="legend-point" style="background:#fff;border:2px solid #e58b20;width:10px;height:10px"></span>与前一点距 &gt; 2 km</div>
+            <div class="timeline-row"><span class="legend-point"></span>起点 <span class="legend-point end" style="margin-left:8px"></span>终点</div>
+          </div>
+        </section>
+      </aside>
+      <section class="map-wrap" aria-label="航迹地图">
+        <div id="map"></div>
+        <div class="map-tools"><button class="btn" id="fitMapButton" type="button" disabled>⌖　定位航迹</button></div>
+        <div class="empty" id="emptyState"><div class="empty-card"><div class="empty-icon">⌁</div><h2>在地图上查看你的 KML 轨迹</h2><p>打开一个 KML 文件，航迹会自动绘制在地图上。支持航班轨迹、GPS 记录和其他包含点或线的 KML 文件。</p></div></div>
+      </section>
+    </div>
+  </main>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <script>
+    (() => {
+      const map = L.map('map', {
+        zoomControl: true,
+        preferCanvas: true,
+        worldCopyJump: false,
+        maxBounds: [[-85.051129, -180], [85.051129, 180]],
+        maxBoundsViscosity: 1
+      }).setView([25, 0], 2);
+      L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+      }).addTo(map);
+
+      const fileInput = document.getElementById('fileInput');
+      const dropzone = document.getElementById('dropzone');
+      const errorMessage = document.getElementById('errorMessage');
+      let routeLayer = null;
+      let endpointLayer = null;
+      let currentBounds = null;
+
+      function updateWorldMinZoom() {
+        const minZoom = Math.max(1, Math.ceil(Math.log2((map.getSize().x + 32) / 256)));
+        map.setMinZoom(minZoom);
+        if (map.getZoom() < minZoom) map.setZoom(minZoom);
+      }
+
+      document.getElementById('openButton').addEventListener('click', () => fileInput.click());
+      document.getElementById('browseButton').addEventListener('click', () => fileInput.click());
+      fileInput.addEventListener('change', event => {
+        const file = event.target.files && event.target.files[0];
+        if (file) readFile(file);
+        event.target.value = '';
+      });
+      for (const eventName of ['dragenter', 'dragover']) dropzone.addEventListener(eventName, event => { event.preventDefault(); dropzone.classList.add('dragging'); });
+      for (const eventName of ['dragleave', 'drop']) dropzone.addEventListener(eventName, event => { event.preventDefault(); dropzone.classList.remove('dragging'); });
+      dropzone.addEventListener('drop', event => {
+        const file = [...(event.dataTransfer?.files || [])].find(candidate => candidate.name.toLowerCase().endsWith('.kml'));
+        if (file) readFile(file); else showError('请拖入 .kml 文件。');
+      });
+      document.getElementById('fitButton').addEventListener('click', fitRoute);
+      document.getElementById('fitMapButton').addEventListener('click', fitRoute);
+
+      function readFile(file) {
+        hideError();
+        const reader = new FileReader();
+        reader.onload = () => {
+          try {
+            const xml = new DOMParser().parseFromString(String(reader.result), 'application/xml');
+            if (xml.querySelector('parsererror')) throw new Error('文件不是有效的 KML/XML。');
+            const data = parseKml(xml, file.name);
+            if (!data.points.length && !data.lines.length) throw new Error('没有找到可显示的坐标点或路线。');
+            showData(data, file.name);
+          } catch (error) {
+            showError(error instanceof Error ? error.message : '无法读取这个 KML 文件。');
+          }
+        };
+        reader.onerror = () => showError('读取文件失败，请重试。');
+        reader.readAsText(file);
+      }
+
+      function parseKml(xml, filename) {
+        const all = (node, name) => [...node.getElementsByTagNameNS('*', name)];
+        const firstText = (node, name) => {
+          const found = node && all(node, name)[0];
+          return found ? found.textContent.trim() : '';
+        };
+        const doc = xml.getElementsByTagNameNS('*', 'Document')[0] || xml.documentElement;
+        const title = firstText(doc, 'name') || filename.replace(/\.kml$/i, '');
+        const placemarks = all(xml, 'Placemark');
+        const points = [];
+        const lines = [];
+        for (const placemark of placemarks) {
+          const name = firstText(placemark, 'name');
+          const when = firstText(placemark, 'when') || name;
+          const pointNode = all(placemark, 'Point')[0];
+          const pointCoords = pointNode && all(pointNode, 'coordinates')[0];
+          if (pointCoords) {
+            const coord = parseCoordinate(pointCoords.textContent.trim().split(/\s+/)[0]);
+            if (coord) points.push({ ...coord, name, time: when });
+          }
+          for (const lineNode of all(placemark, 'LineString')) {
+            const coordsNode = all(lineNode, 'coordinates')[0];
+            if (!coordsNode) continue;
+            const coordinates = coordsNode.textContent.trim().split(/\s+/).map(parseCoordinate).filter(Boolean);
+            if (coordinates.length) lines.push(coordinates);
+          }
+        }
+        return { title, points, lines };
+      }
+
+      function parseCoordinate(value) {
+        const parts = value.split(',').map(Number);
+        if (parts.length < 2 || !Number.isFinite(parts[0]) || !Number.isFinite(parts[1]) || Math.abs(parts[1]) > 90 || Math.abs(parts[0]) > 180) return null;
+        return { lng: parts[0], lat: parts[1], altitude: Number.isFinite(parts[2]) ? parts[2] : null };
+      }
+
+      function showData(data, filename) {
+        if (routeLayer) map.removeLayer(routeLayer);
+        if (endpointLayer) map.removeLayer(endpointLayer);
+        routeLayer = L.layerGroup();
+        endpointLayer = L.layerGroup();
+
+        const bounds = L.latLngBounds([]);
+        let gapCount = 0;
+        let largestGapMeters = 0;
+        const gapEndpointDistances = new Map();
+        if (data.points.length > 1) {
+          assignMapLongitudes(data.points);
+          for (let index = 1; index < data.points.length; index++) {
+            const previous = data.points[index - 1];
+            const point = data.points[index];
+            const gapDistanceMeters = haversineDistanceMeters(previous, point);
+            const isGap = gapDistanceMeters > 2000;
+            if (isGap) {
+              gapCount++;
+              largestGapMeters = Math.max(largestGapMeters, gapDistanceMeters);
+              gapEndpointDistances.set(index, gapDistanceMeters);
+              bounds.extend([point.lat, point.mapLng]);
+              continue;
+            }
+            L.polyline([[previous.lat, previous.mapLng], [point.lat, point.mapLng]], {
+              color: '#7f9fbd',
+              weight: 2,
+              opacity: .78,
+              dashArray: '2 6',
+              lineCap: 'round'
+            }).addTo(routeLayer);
+            bounds.extend([previous.lat, previous.mapLng]);
+            bounds.extend([point.lat, point.mapLng]);
+          }
+          for (const [index, point] of data.points.entries()) {
+            bounds.extend([point.lat, point.mapLng]);
+            if (gapEndpointDistances.has(index)) {
+              const gapMeters = gapEndpointDistances.get(index);
+              L.circleMarker([point.lat, point.mapLng], {
+                radius: 5, color: '#e58b20', weight: 1.5, fillColor: '#fff', fillOpacity: .95
+              }).bindPopup(`<div class="popup-title">长间隔后的记录点</div><div class="popup-sub">与前一记录点相距 ${formatDistance(gapMeters)}<br>超过 2 公里阈值</div>`).addTo(routeLayer);
+            }
+            const marker = L.circleMarker([point.lat, point.mapLng], {
+              radius: 2.7, color: '#fff', weight: .8, fillColor: '#1677ff', fillOpacity: .95
+            });
+            const details = [
+              point.time || '时间未提供',
+              point.altitude !== null ? `高度：${Math.round(point.altitude).toLocaleString()} m` : '',
+              `记录点 ${index + 1} / ${data.points.length}`
+            ].filter(Boolean).map(escapeHtml).join('<br>');
+            marker.bindPopup(`<div class="popup-title">实际数据点</div><div class="popup-sub">${details}</div>`);
+            marker.addTo(routeLayer);
+          }
+        } else {
+          for (const line of data.lines) {
+            assignMapLongitudes(line);
+            const path = line.map(point => [point.lat, point.mapLng]);
+            L.polyline(path, { color:'#7f9fbd', weight:2, opacity:.8, dashArray:'2 6', lineCap:'round' }).addTo(routeLayer);
+            for (const point of line) {
+              L.circleMarker([point.lat, point.lng], { radius:2.7, color:'#fff', weight:.8, fillColor:'#1677ff', fillOpacity:.95 }).addTo(routeLayer);
+            }
+            path.forEach(point => bounds.extend(point));
+          }
+        }
+
+        const endpoints = data.points.length ? [data.points[0], data.points[data.points.length - 1]] : data.lines.length ? [data.lines[0][0], data.lines[data.lines.length - 1].at(-1)] : [];
+        if (endpoints[0]) addEndpoint(endpoints[0], '起点', '#35a879');
+        if (endpoints[1] && (endpoints[0].lat !== endpoints[1].lat || endpoints[0].lng !== endpoints[1].lng)) addEndpoint(endpoints[1], '终点', '#f05a66');
+        routeLayer.addTo(map);
+        endpointLayer.addTo(map);
+        currentBounds = bounds.isValid() ? bounds : null;
+        if (currentBounds) {
+          const worldCenterLongitude = (currentBounds.getWest() + currentBounds.getEast()) / 2;
+          map.setMaxBounds([
+            [-85.051129, worldCenterLongitude - 180],
+            [85.051129, worldCenterLongitude + 180]
+          ]);
+        }
+
+        const first = data.points[0] || endpoints[0];
+        const last = data.points.at(-1) || endpoints.at(-1);
+        const count = data.points.length || data.lines.reduce((sum, line) => sum + line.length, 0);
+        const recordedDistanceMeters = data.points.length > 1
+          ? data.points.slice(1).reduce((sum, point, i) => {
+              const segmentDistance = haversineDistanceMeters(data.points[i], point);
+              if (segmentDistance > 2000) return sum;
+              return sum + segmentDistance;
+            }, 0)
+          : data.lines.reduce((sum, line) => sum + line.slice(1).reduce((segmentSum, point, i) => segmentSum + haversineDistanceMeters(line[i], point), 0), 0);
+        const startDate = parseDate(first?.time);
+        const endDate = parseDate(last?.time);
+        const elapsedMs = startDate && endDate ? endDate - startDate : NaN;
+
+        document.getElementById('routeTitle').textContent = data.title;
+        document.getElementById('routeSubtitle').textContent = `${filename} · ${data.points.length ? '位置点轨迹' : '线段轨迹'}`;
+        document.getElementById('fileName').textContent = filename;
+        document.getElementById('pointCount').textContent = `${count.toLocaleString()} 个点`;
+        document.getElementById('gapCount').textContent = data.points.length ? `${gapCount} 段` : '—';
+        document.getElementById('largestGap').textContent = largestGapMeters ? formatDistance(largestGapMeters) : '—';
+        document.getElementById('distance').textContent = formatDistance(recordedDistanceMeters);
+        document.getElementById('duration').textContent = Number.isFinite(elapsedMs) && elapsedMs >= 0 ? formatDuration(elapsedMs) : '—';
+        document.getElementById('startTime').textContent = formatTime(first?.time);
+        document.getElementById('endTime').textContent = formatTime(last?.time);
+        document.getElementById('startDetail').textContent = first?.time || '时间未提供';
+        document.getElementById('endDetail').textContent = last?.time || '时间未提供';
+        document.getElementById('startCoord').textContent = formatCoord(first);
+        document.getElementById('endCoord').textContent = formatCoord(last);
+        document.getElementById('emptyState').classList.add('hidden');
+        document.getElementById('fitButton').disabled = !currentBounds;
+        document.getElementById('fitMapButton').disabled = !currentBounds;
+        if (currentBounds) fitRoute();
+      }
+
+      function addEndpoint(point, label, color) {
+        const marker = L.circleMarker([point.lat, point.mapLng ?? point.lng], { radius:7, color:'#fff', weight:3, fillColor:color, fillOpacity:1 });
+        const extra = point.altitude !== null ? `<br>高度：${Math.round(point.altitude).toLocaleString()} m` : '';
+        marker.bindPopup(`<div class="popup-title">${label}</div><div class="popup-sub">${escapeHtml(point.time || '时间未提供')}<br>${point.lat.toFixed(5)}, ${point.lng.toFixed(5)}${extra}</div>`);
+        marker.addTo(endpointLayer);
+      }
+
+      function parseDate(value) {
+        if (!value) return null;
+        const date = new Date(value);
+        return Number.isNaN(date.getTime()) ? null : date;
+      }
+      function haversineDistanceMeters(a, b) {
+        const toRadians = degrees => degrees * Math.PI / 180;
+        const latitude1 = toRadians(a.lat);
+        const latitude2 = toRadians(b.lat);
+        const latitudeDelta = latitude2 - latitude1;
+        const longitudeDelta = toRadians(b.lng - a.lng);
+        const haversine = Math.sin(latitudeDelta / 2) ** 2
+          + Math.cos(latitude1) * Math.cos(latitude2) * Math.sin(longitudeDelta / 2) ** 2;
+        return 12742017.6 * Math.asin(Math.sqrt(Math.min(1, haversine)));
+      }
+      function assignMapLongitudes(points) {
+        if (!points.length) return;
+        let previous = points[0].lng;
+        points[0].mapLng = previous;
+        for (let index = 1; index < points.length; index++) {
+          let longitude = points[index].lng;
+          while (longitude - previous > 180) longitude -= 360;
+          while (longitude - previous < -180) longitude += 360;
+          points[index].mapLng = longitude;
+          previous = longitude;
+        }
+        const longitudes = points.map(point => point.mapLng);
+        const center = (Math.min(...longitudes) + Math.max(...longitudes)) / 2;
+        const shift = 360 * Math.round(center / 360);
+        for (const point of points) point.mapLng -= shift;
+      }
+      function formatTime(value) {
+        const date = parseDate(value);
+        return date ? new Intl.DateTimeFormat('zh-CN', { dateStyle:'medium', timeStyle:'short', timeZone:'UTC' }).format(date) + ' UTC' : '—';
+      }
+      function formatDuration(ms) {
+        const minutes = Math.round(ms / 60000);
+        const hours = Math.floor(minutes / 60);
+        return hours ? `${hours} 小时 ${minutes % 60} 分` : `${minutes} 分钟`;
+      }
+      function formatDistance(meters) { return meters >= 1000 ? `${(meters / 1000).toLocaleString('zh-CN', { maximumFractionDigits:1 })} km` : `${Math.round(meters)} m`; }
+      function formatCoord(point) { return point ? `${point.lat.toFixed(5)}, ${point.lng.toFixed(5)}` : '—'; }
+      function escapeHtml(value) { return String(value).replace(/[&<>"']/g, char => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[char])); }
+      function fitRoute() { if (currentBounds) map.fitBounds(currentBounds, { padding:[48,48], maxZoom:12 }); }
+      function showError(message) { errorMessage.textContent = message; errorMessage.classList.remove('hidden'); }
+      function hideError() { errorMessage.textContent = ''; errorMessage.classList.add('hidden'); }
+      window.addEventListener('resize', () => { map.invalidateSize(); updateWorldMinZoom(); });
+      setTimeout(() => { map.invalidateSize(); updateWorldMinZoom(); }, 0);
+    })();
+  </script>
+</body>
+</html>
